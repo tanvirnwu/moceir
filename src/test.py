@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 from net.moce_ir import MoCEIR
 from options import train_options
 from utils.test_utils import save_img
-from data.dataset_utils import IRBenchmarks, CDD11
+from data.dataset_utils import IRBenchmarks, AllWeatherTestDataset, CDD11
 
 
 
@@ -166,7 +166,9 @@ def main(opt):
         ind_opt = opt
         ind_opt.benchmarks = [de]
         
-        if "CDD11" in opt.trainset:
+        if opt.trainset.lower() == "allweather":
+            dataset = AllWeatherTestDataset(ind_opt)
+        elif "CDD11" in opt.trainset:
             _, subset = opt.trainset.split("_", maxsplit=1)
             dataset = CDD11(opt, split="test", subset=subset)
         else:
@@ -174,7 +176,10 @@ def main(opt):
         
         print("--------> Testing on", de, "testset.")
         print("\n")
-        globals()[f"run_{de}"](opt, net, dataset, factor=8)
+        if opt.trainset.lower() == "allweather":
+            run_test(opt, net, dataset, factor=8)
+        else:
+            globals()[f"run_{de}"](opt, net, dataset, factor=8)
     
 
 def depth_type(value):

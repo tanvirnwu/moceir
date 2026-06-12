@@ -29,7 +29,7 @@ def base_parser():
     parser.add_argument('--batch_size', type=int, default=4, help='Batch size per GPU.')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate.')
     parser.add_argument('--de_type', nargs='+', help='Degradation types for training/testing.')
-    parser.add_argument('--trainset', default="standard", help=["standard", "CDD11_all", "CDD11_single", "CDD11_double", "CDD11_triple"])
+    parser.add_argument('--trainset', default="standard", help=["standard", "allweather", "CDD11_all", "CDD11_single", "CDD11_double", "CDD11_triple"])
     parser.add_argument('--loss_type', default="L1", help='Loss type.')
     parser.add_argument('--patch_size', type=int, default=128, help='Input patch size.')
     parser.add_argument('--balance_loss_weight', type=float, default=0.01, help='Balance loss weight.')

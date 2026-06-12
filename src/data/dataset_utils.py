@@ -12,6 +12,243 @@ from data.degradation_utils import Degradation
 from utils.image_utils import random_augmentation, crop_img
 
 
+IMG_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+
+def _list_image_files(folder):
+    image_paths = []
+    for ext in IMG_EXTENSIONS:
+        image_paths.extend(glob.glob(os.path.join(folder, f"*{ext}")))
+        image_paths.extend(glob.glob(os.path.join(folder, f"*{ext.upper()}")))
+    return sorted(set(image_paths))
+
+
+def _allweather_base_candidates(data_file_dir):
+    root = os.path.normpath(data_file_dir)
+    candidates = [root]
+    allweather_root = os.path.join(root, "allweather")
+    if os.path.normcase(allweather_root) != os.path.normcase(root):
+        candidates.append(allweather_root)
+    return candidates
+
+
+def _has_pair_dirs(root):
+    return (
+        os.path.isdir(os.path.join(root, "input"))
+        and os.path.isdir(os.path.join(root, "gt"))
+    )
+
+
+def _find_allweather_train_root(data_file_dir):
+    for root in _allweather_base_candidates(data_file_dir):
+        if _has_pair_dirs(root):
+            return root
+    searched = ", ".join(_allweather_base_candidates(data_file_dir))
+    raise ValueError(
+        "AllWeather train dataset must contain input/ and gt/ folders. "
+        f"Searched: {searched}"
+    )
+
+
+def _find_allweather_test_roots(data_file_dir, benchmark):
+    benchmark = benchmark or "allweather"
+    benchmark = str(benchmark)
+    benchmark_lower = benchmark.lower()
+    roots = []
+
+    for base in _allweather_base_candidates(data_file_dir):
+        if benchmark_lower in ["allweather", "all"]:
+            split_roots = []
+
+            for split in ["test", "Test"]:
+                split_dir = os.path.join(base, split)
+                if _has_pair_dirs(split_dir):
+                    split_roots.append(split_dir)
+                if os.path.isdir(split_dir):
+                    category_roots = sorted(glob.glob(os.path.join(split_dir, "*")))
+                    split_roots.extend([path for path in category_roots if _has_pair_dirs(path)])
+
+            if split_roots:
+                roots.extend(split_roots)
+            elif _has_pair_dirs(base):
+                roots.append(base)
+        else:
+            candidates = [
+                os.path.join(base, "test", benchmark),
+                os.path.join(base, "test", benchmark_lower),
+                os.path.join(base, "Test", benchmark),
+                os.path.join(base, "Test", benchmark_lower),
+                os.path.join(base, benchmark),
+                os.path.join(base, benchmark_lower),
+            ]
+            roots.extend([candidate for candidate in candidates if _has_pair_dirs(candidate)])
+
+    unique_roots = []
+    seen = set()
+    for root in roots:
+        norm_root = os.path.normcase(os.path.abspath(root))
+        if norm_root not in seen:
+            seen.add(norm_root)
+            unique_roots.append(root)
+
+    if unique_roots:
+        return unique_roots
+
+    searched = []
+    for base in _allweather_base_candidates(data_file_dir):
+        searched.extend([
+            base,
+            os.path.join(base, "test", benchmark),
+            os.path.join(base, "Test", benchmark),
+            os.path.join(base, benchmark),
+        ])
+    raise ValueError(
+        "AllWeather test dataset must contain input/ and gt/ folders, either "
+        "directly or inside a benchmark/category folder. "
+        f"Searched: {', '.join(searched)}"
+    )
+
+
+def _build_allweather_pairs(root):
+    input_dir = os.path.join(root, "input")
+    gt_dir = os.path.join(root, "gt")
+    input_images = _list_image_files(input_dir)
+    gt_images = _list_image_files(gt_dir)
+
+    if len(input_images) == 0:
+        raise ValueError(f"No input images found in {input_dir}")
+
+    gt_by_name = {os.path.basename(path): path for path in gt_images}
+    missing_gt = [
+        os.path.basename(path)
+        for path in input_images
+        if os.path.basename(path) not in gt_by_name
+    ]
+    if missing_gt:
+        preview = ", ".join(missing_gt[:5])
+        suffix = "" if len(missing_gt) <= 5 else f" ... (+{len(missing_gt) - 5} more)"
+        raise ValueError(f"Missing GT images for: {preview}{suffix}")
+
+    return [
+        {
+            "input": input_path,
+            "gt": gt_by_name[os.path.basename(input_path)],
+        }
+        for input_path in input_images
+    ]
+
+
+def _allweather_de_id(args, benchmark="allweather"):
+    de_type = getattr(args, "de_type", None) or ["allweather"]
+    benchmark = str(benchmark)
+    if benchmark in de_type:
+        return de_type.index(benchmark)
+    if "allweather" in de_type:
+        return de_type.index("allweather")
+    return 0
+
+
+class AllWeatherTrainDataset(Dataset):
+    """
+    Training dataset for flat AllWeather folders:
+        allweather/input/<image>
+        allweather/gt/<image>
+    """
+    def __init__(self, args):
+        super(AllWeatherTrainDataset, self).__init__()
+
+        self.args = args
+        self.toTensor = ToTensor()
+        self.patch_size = args.patch_size
+        self.de_id = _allweather_de_id(args)
+
+        self.root = _find_allweather_train_root(args.data_file_dir)
+        self.samples = _build_allweather_pairs(self.root)
+
+        print("Total AllWeather training pairs : {}".format(len(self.samples)))
+        print("AllWeather train root : {}".format(self.root))
+
+    def __getitem__(self, idx):
+        sample = self.samples[idx]
+        lr = crop_img(np.array(Image.open(sample["input"]).convert('RGB')), base=16)
+        hr = crop_img(np.array(Image.open(sample["gt"]).convert('RGB')), base=16)
+
+        if lr.shape != hr.shape:
+            raise ValueError(
+                "AllWeather input/GT shape mismatch: "
+                f"{sample['input']} {lr.shape} vs {sample['gt']} {hr.shape}"
+            )
+
+        lr, hr = random_augmentation(*self._crop_patch(lr, hr))
+
+        lr = self.toTensor(lr)
+        hr = self.toTensor(hr)
+
+        return [sample["input"], self.de_id], lr, hr
+
+    def __len__(self):
+        return len(self.samples)
+
+    def _crop_patch(self, img_1, img_2):
+        H = img_1.shape[0]
+        W = img_1.shape[1]
+        if H < self.patch_size or W < self.patch_size:
+            raise ValueError(
+                f"Patch size {self.patch_size} is larger than image size {(H, W)}"
+            )
+        ind_H = random.randint(0, H - self.patch_size)
+        ind_W = random.randint(0, W - self.patch_size)
+
+        patch_1 = img_1[ind_H:ind_H + self.patch_size, ind_W:ind_W + self.patch_size]
+        patch_2 = img_2[ind_H:ind_H + self.patch_size, ind_W:ind_W + self.patch_size]
+
+        return patch_1, patch_2
+
+
+class AllWeatherTestDataset(Dataset):
+    """
+    Test dataset for AllWeather folders. Supports:
+        allweather/test/haze/input and allweather/test/haze/gt
+        allweather/haze/input and allweather/haze/gt
+        allweather/input and allweather/gt
+    """
+    def __init__(self, args):
+        super(AllWeatherTestDataset, self).__init__()
+
+        self.args = args
+        self.benchmarks = args.benchmarks
+        self.benchmark = self.benchmarks[0] if self.benchmarks else "allweather"
+        self.toTensor = ToTensor()
+        self.de_id = _allweather_de_id(args, self.benchmark)
+
+        self.samples = []
+        self.roots = _find_allweather_test_roots(args.data_file_dir, self.benchmark)
+        for root in self.roots:
+            self.samples.extend(_build_allweather_pairs(root))
+
+        print("Total AllWeather {} testing pairs : {}".format(self.benchmark, len(self.samples)))
+        print("AllWeather test roots : {}".format(self.roots))
+
+    def __getitem__(self, idx):
+        sample = self.samples[idx]
+        lr = crop_img(np.array(Image.open(sample["input"]).convert('RGB')), base=16)
+        hr = crop_img(np.array(Image.open(sample["gt"]).convert('RGB')), base=16)
+
+        if lr.shape != hr.shape:
+            raise ValueError(
+                "AllWeather input/GT shape mismatch: "
+                f"{sample['input']} {lr.shape} vs {sample['gt']} {hr.shape}"
+            )
+
+        lr = self.toTensor(lr)
+        hr = self.toTensor(hr)
+
+        return [sample["input"], self.de_id], lr, hr
+
+    def __len__(self):
+        return len(self.samples)
+
+
 class CDD11(Dataset):
     def __init__(self, args, split: str = "train", subset: str = "all"):
         super(CDD11, self).__init__()
