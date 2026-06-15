@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from net.moce_ir import MoCEIR
 from options import train_options
 from utils.test_utils import save_img
+from utils.result_paths import result_dir
 from data.dataset_utils import IRBenchmarks, AllWeatherTestDataset, CDD11
 
 
@@ -81,7 +82,7 @@ def run_test(opts, net, dataset, factor=8):
     testloader = DataLoader(dataset, batch_size=1, pin_memory=True, shuffle=False, drop_last=False, num_workers=0)
     
     if opts.save_results:
-        pathlib.Path(os.path.join(os.getcwd(), f"results/{opts.checkpoint_id}/{opts.benchmarks[0]}")).mkdir(parents=True, exist_ok=True)
+        pathlib.Path(result_dir(opts)).mkdir(parents=True, exist_ok=True)
     calc_lpips = LearnedPerceptualImagePatchSimilarity(net_type='vgg', normalize=True, reduction="mean").cuda()
     psnr, ssim, lpips = [], [], []
     with torch.no_grad():
@@ -111,9 +112,7 @@ def run_test(opts, net, dataset, factor=8):
             if opts.save_results:
                 save_name = os.path.splitext(os.path.split(clean_name[0])[-1])[0] + '_' + str(round(psnr_temp, 2)) +'.png'
                 save_img(
-                (os.path.join(os.getcwd(), 
-                            f"results/{opts.checkpoint_id}/{opts.benchmarks[0]}", 
-                            save_name)), 
+                (os.path.join(result_dir(opts), save_name)),
                 img_as_ubyte(restored))
 
     print('PSNR: {:f} SSIM: {:f} LPIPS: {:f}\n'.format(np.mean(psnr), np.mean(ssim), np.mean(lpips)))
