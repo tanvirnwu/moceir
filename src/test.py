@@ -9,6 +9,7 @@ from typing import List
 from skimage import img_as_ubyte
 from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+from torchmetrics.image.fid import FrechetInceptionDistance
 
 import torch
 import torch.nn as nn
@@ -18,6 +19,7 @@ from torch.utils.data import DataLoader
 from net.moce_ir import MoCEIR
 from options import train_options
 from utils.test_utils import save_img
+from utils.metric_utils import format_restoration_report
 from utils.result_paths import result_dir
 from data.dataset_utils import IRBenchmarks, AllWeatherTestDataset, CDD11
 
@@ -84,6 +86,7 @@ def run_test(opts, net, dataset, factor=8):
     if opts.save_results:
         pathlib.Path(result_dir(opts)).mkdir(parents=True, exist_ok=True)
     calc_lpips = LearnedPerceptualImagePatchSimilarity(net_type='vgg', normalize=True, reduction="mean").cuda()
+    calc_fid = FrechetInceptionDistance(feature=2048, normalize=True).cuda()
     psnr, ssim, lpips = [], [], []
     with torch.no_grad():
 
@@ -101,6 +104,8 @@ def run_test(opts, net, dataset, factor=8):
             # save output images
             restored = torch.clamp(restored,0,1)
             lpips.append(calc_lpips(clean_patch, restored).cpu().numpy())
+            calc_fid.update(clean_patch, real=True)
+            calc_fid.update(restored, real=False)
             
             restored = restored.cpu().detach().permute(0, 2, 3, 1).squeeze(0).numpy()
             degrad_patch = degrad_patch.cpu().detach().permute(0, 2, 3, 1).squeeze(0).numpy()
@@ -115,7 +120,8 @@ def run_test(opts, net, dataset, factor=8):
                 (os.path.join(result_dir(opts), save_name)),
                 img_as_ubyte(restored))
 
-    print('PSNR: {:f} SSIM: {:f} LPIPS: {:f}\n'.format(np.mean(psnr), np.mean(ssim), np.mean(lpips)))
+    fid = calc_fid.compute().cpu().item()
+    print(format_restoration_report(np.mean(psnr), np.mean(ssim), np.mean(lpips), fid))
 
             
 ## test LolV1

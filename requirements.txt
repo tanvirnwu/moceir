@@ -9,6 +9,7 @@ wandb
 scipy
 tqdm 
 torchmetrics
+torch-fidelity
 fvcore
 lightning
 tensorboard
