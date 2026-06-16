@@ -10,6 +10,7 @@ from skimage import img_as_ubyte
 from skimage.metrics import structural_similarity, peak_signal_noise_ratio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from torchmetrics.image.fid import FrechetInceptionDistance
+import pyiqa
 
 import torch
 import torch.nn as nn
@@ -87,7 +88,9 @@ def run_test(opts, net, dataset, factor=8):
         pathlib.Path(result_dir(opts)).mkdir(parents=True, exist_ok=True)
     calc_lpips = LearnedPerceptualImagePatchSimilarity(net_type='vgg', normalize=True, reduction="mean").cuda()
     calc_fid = FrechetInceptionDistance(feature=2048, normalize=True).cuda()
-    psnr, ssim, lpips = [], [], []
+    calc_brisque = pyiqa.create_metric("brisque", device=torch.device("cuda"))
+    calc_niqe = pyiqa.create_metric("niqe", device=torch.device("cuda"))
+    psnr, ssim, lpips, brisque, niqe = [], [], [], [], []
     with torch.no_grad():
 
         for ([clean_name, de_id], degrad_patch, clean_patch) in tqdm(testloader):
@@ -106,6 +109,8 @@ def run_test(opts, net, dataset, factor=8):
             lpips.append(calc_lpips(clean_patch, restored).cpu().numpy())
             calc_fid.update(clean_patch, real=True)
             calc_fid.update(restored, real=False)
+            brisque.append(calc_brisque(restored).detach().mean().cpu().item())
+            niqe.append(calc_niqe(restored).detach().mean().cpu().item())
             
             restored = restored.cpu().detach().permute(0, 2, 3, 1).squeeze(0).numpy()
             degrad_patch = degrad_patch.cpu().detach().permute(0, 2, 3, 1).squeeze(0).numpy()
@@ -121,7 +126,14 @@ def run_test(opts, net, dataset, factor=8):
                 img_as_ubyte(restored))
 
     fid = calc_fid.compute().cpu().item()
-    print(format_restoration_report(np.mean(psnr), np.mean(ssim), np.mean(lpips), fid))
+    print(format_restoration_report(
+        np.mean(psnr),
+        np.mean(ssim),
+        np.mean(lpips),
+        fid,
+        np.mean(brisque),
+        np.mean(niqe),
+    ))
 
             
 ## test LolV1

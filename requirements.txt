@@ -10,6 +10,7 @@ scipy
 tqdm 
 torchmetrics
 torch-fidelity
+pyiqa
 fvcore
 lightning
 tensorboard
