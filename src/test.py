@@ -90,7 +90,8 @@ def run_test(opts, net, dataset, factor=8):
     calc_fid = FrechetInceptionDistance(feature=2048, normalize=True).cuda()
     calc_brisque = pyiqa.create_metric("brisque", device=torch.device("cuda"))
     calc_niqe = pyiqa.create_metric("niqe", device=torch.device("cuda"))
-    psnr, ssim, lpips, brisque, niqe = [], [], [], [], []
+    calc_piqe = pyiqa.create_metric("piqe", device=torch.device("cuda"))
+    psnr, ssim, lpips, brisque, niqe, piqe = [], [], [], [], [], []
     with torch.no_grad():
 
         for ([clean_name, de_id], degrad_patch, clean_patch) in tqdm(testloader):
@@ -111,6 +112,7 @@ def run_test(opts, net, dataset, factor=8):
             calc_fid.update(restored, real=False)
             brisque.append(calc_brisque(restored).detach().mean().cpu().item())
             niqe.append(calc_niqe(restored).detach().mean().cpu().item())
+            piqe.append(calc_piqe(restored).detach().mean().cpu().item())
             
             restored = restored.cpu().detach().permute(0, 2, 3, 1).squeeze(0).numpy()
             degrad_patch = degrad_patch.cpu().detach().permute(0, 2, 3, 1).squeeze(0).numpy()
@@ -133,6 +135,7 @@ def run_test(opts, net, dataset, factor=8):
         fid,
         np.mean(brisque),
         np.mean(niqe),
+        np.mean(piqe),
     ))
 
             

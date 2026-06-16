@@ -15,9 +15,10 @@ def test_format_restoration_report_includes_no_reference_metrics():
         fid=12.345678,
         brisque=20.123456,
         niqe=3.123456,
+        piqe=40.123456,
     )
 
     assert report == (
         "PSNR: 30.123456 SSIM: 0.912345 LPIPS: 0.123456 "
-        "FID: 12.345678 BRISQUE: 20.123456 NIQE: 3.123456\n"
+        "FID: 12.345678 BRISQUE: 20.123456 NIQE: 3.123456 PIQE: 40.123456\n"
     )
